@@ -73,6 +73,8 @@ ZARAGOZA_HINT = r"zaragoza|utebo|la muela|alag[óo]n|villanueva|ejea|monz[óo]n|
 MIN_SCORE = 6          # oferta mínima (1-10) para notificar
 MAX_DIGEST_ITEMS = 8   # máximo de ofertas por mensaje de Telegram
 MAX_DESC_CHARS = 3000  # descripción truncada antes de mandarla a la IA
+MAX_SCORE_JOBS = 24    # máx. ofertas que se puntúan con IA por ejecución (limita tiempo/cuota)
+LINKEDIN_DETAIL_LIMIT = 15  # máx. descripciones completas a descargar de LinkedIn por ejecución
 
 # Consultas LinkedIn: (keywords, location, remote_only)
 LINKEDIN_QUERIES = [

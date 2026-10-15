@@ -21,7 +21,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -35,14 +35,16 @@ jobs:
 
       - name: Buscar ofertas y notificar
         env:
+          PYTHONUNBUFFERED: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ "${{ inputs.test_telegram }}" = "true" ]; then
-            python -m src.main --test-telegram
+            timeout 300 python -u -m src.main --test-telegram
           else
-            python -m src.main
+            # Límite duro de 13 min: si se supera, falla con error claro en vez de cancelarse.
+            timeout 780 python -u -m src.main
           fi
 
       - name: Guardar ofertas vistas

@@ -92,8 +92,9 @@ def fetch() -> list[Job]:
     return jobs
 
 
-def hydrate(jobs: list[Job], limit: int = 25) -> None:
+def hydrate(jobs: list[Job], limit: int | None = None) -> None:
     """Descarga la descripción completa (necesaria para el filtro y la IA)."""
+    limit = limit if limit is not None else config.LINKEDIN_DETAIL_LIMIT
     for job in jobs[:limit]:
         try:
             _fetch_detail(job)

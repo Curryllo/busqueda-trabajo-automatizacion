@@ -1,6 +1,7 @@
 """Orquestador: recoge ofertas, filtra, puntúa con IA y envía el resumen por Telegram."""
 
 import argparse
+from datetime import datetime
 
 from . import config, dedupe, filters, telegram
 from .providers import arbeitnow, infojobs, linkedin, remotive
@@ -14,50 +15,58 @@ PROVIDERS = [
 ]
 
 
+def log(message: str) -> None:
+    print(f"[{datetime.now():%H:%M:%S}] {message}", flush=True)
+
+
 def collect() -> tuple[list, list[str]]:
     jobs: list = []
     errors: list[str] = []
     for name, fetch in PROVIDERS:
         try:
             found = fetch()
-            print(f"[{name}] {len(found)} ofertas obtenidas")
+            log(f"{name}: {len(found)} ofertas obtenidas")
             jobs.extend(found)
         except Exception as exc:  # noqa: BLE001 - una fuente caída no rompe el resto
             errors.append(f"{name}: {exc}")
-            print(f"[{name}] error: {exc}")
+            log(f"{name}: error: {exc}")
     return jobs, errors
 
 
 def run(dry_run: bool = False, limit: int | None = None) -> None:
+    log("inicio de la ejecución")
     telegram_ok = telegram.is_configured()
     if not dry_run and not telegram_ok:
-        print(
-            "[aviso] Telegram no está configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). "
+        log(
+            "aviso: Telegram no está configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). "
             "No se enviará nada."
         )
 
     seen = dedupe.load()
-    print(f"[dedupe] {len(seen)} ofertas ya vistas")
+    log(f"dedupe: {len(seen)} ofertas ya vistas")
 
     all_jobs, errors = collect()
     new_jobs = dedupe.filter_new(all_jobs, seen)
-    print(f"[dedupe] {len(new_jobs)} ofertas nuevas de {len(all_jobs)}")
+    log(f"dedupe: {len(new_jobs)} ofertas nuevas de {len(all_jobs)}")
 
     linkedin_jobs = [j for j in new_jobs if j.source == "LinkedIn"]
-    linkedin.hydrate(linkedin_jobs, limit=limit or 25)
+    linkedin.hydrate(linkedin_jobs, limit=limit or config.LINKEDIN_DETAIL_LIMIT)
 
     relevant = filters.apply(new_jobs)
-    print(f"[filtros] {len(relevant)} ofertas pasan el filtro por reglas")
+    log(f"filtros: {len(relevant)} ofertas pasan el filtro por reglas")
 
-    relevant = score(relevant)
+    to_score = relevant[: config.MAX_SCORE_JOBS]
+    if len(relevant) > len(to_score):
+        log(f"scorer: se puntúan las primeras {len(to_score)} de {len(relevant)}")
+    to_score = score(to_score)
 
-    any_scored = any(job.score is not None for job in relevant)
+    any_scored = any(job.score is not None for job in to_score)
     if any_scored:
         selected = [
-            job for job in relevant if job.score is None or job.score >= config.MIN_SCORE
+            job for job in to_score if job.score is None or job.score >= config.MIN_SCORE
         ]
     else:
-        selected = list(relevant)  # sin IA: nos quedamos con todo lo que pasa reglas
+        selected = list(to_score)  # sin IA: nos quedamos con todo lo que pasa reglas
 
     selected.sort(key=lambda j: (j.score if j.score is not None else 0), reverse=True)
     selected = selected[: config.MAX_DIGEST_ITEMS]
@@ -70,7 +79,7 @@ def run(dry_run: bool = False, limit: int | None = None) -> None:
         detail = f"ninguna oferta supera MIN_SCORE ({config.MIN_SCORE})"
     else:
         detail = f"{len(selected)} ofertas para notificar"
-    print(f"[resultado] {detail}")
+    log(f"resultado: {detail}")
 
     if dry_run:
         print("\n===== DIGEST (dry-run) =====\n")

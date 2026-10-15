@@ -126,6 +126,19 @@ def _score_batch(client, types, model: str, jobs: list[Job]) -> dict[int, dict]:
     return result
 
 
+def _make_client(genai, types, api_key):
+    """Crea el cliente con timeout y pocos reintentos para no colgar la ejecución."""
+    try:
+        options = types.HttpOptions(
+            timeout=60_000,  # 60 s por petición
+            retry_options=types.HttpRetryOptions(attempts=2),
+        )
+        return genai.Client(api_key=api_key, http_options=options)
+    except Exception as exc:  # noqa: BLE001 - versiones antiguas del SDK
+        print(f"[scorer] no se pudieron fijar timeouts ({exc}); cliente por defecto")
+        return genai.Client(api_key=api_key)
+
+
 def score(jobs: list[Job]) -> list[Job]:
     """Rellena score/stack/summary. Si no hay API key o falla, deja las ofertas sin puntuar."""
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -139,7 +152,7 @@ def score(jobs: list[Job]) -> list[Job]:
         print("[scorer] google-genai no instalado: se omite la puntuación con IA")
         return jobs
 
-    client = genai.Client(api_key=api_key)
+    client = _make_client(genai, types, api_key)
     models = _candidate_models(client)
     batch_size = 4
     model = models[0]
