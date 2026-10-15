@@ -29,6 +29,13 @@ def collect() -> tuple[list, list[str]]:
 
 
 def run(dry_run: bool = False, limit: int | None = None) -> None:
+    telegram_ok = telegram.is_configured()
+    if not dry_run and not telegram_ok:
+        print(
+            "[aviso] Telegram no está configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID). "
+            "No se enviará nada."
+        )
+
     seen = dedupe.load()
     print(f"[dedupe] {len(seen)} ofertas ya vistas")
 
@@ -54,30 +61,51 @@ def run(dry_run: bool = False, limit: int | None = None) -> None:
 
     selected.sort(key=lambda j: (j.score if j.score is not None else 0), reverse=True)
     selected = selected[: config.MAX_DIGEST_ITEMS]
-    print(f"[resultado] {len(selected)} ofertas para notificar")
 
-    if not dry_run:
-        dedupe.save(seen | {job.id for job in relevant})
+    if not new_jobs:
+        detail = "no hay ofertas nuevas desde la última ejecución"
+    elif not relevant:
+        detail = "ninguna oferta nueva pasa el filtro por reglas"
+    elif not selected and any_scored:
+        detail = f"ninguna oferta supera MIN_SCORE ({config.MIN_SCORE})"
+    else:
+        detail = f"{len(selected)} ofertas para notificar"
+    print(f"[resultado] {detail}")
+
+    if dry_run:
+        print("\n===== DIGEST (dry-run) =====\n")
+        print(telegram.render(selected))
+        if errors and not selected:
+            print("\n[aviso] Fuentes con error: " + "; ".join(errors))
+        print("\n============================")
+        return
 
     error_note = ""
     if errors and not selected:
         error_note = "Fuentes con error: " + "; ".join(errors)
 
-    if dry_run:
-        print("\n===== DIGEST (dry-run) =====\n")
-        print(telegram.render(selected))
-        if error_note:
-            print("\n[aviso]", error_note)
-        print("\n============================")
-    else:
-        telegram.send(selected, error_note)
+    if telegram_ok:
+        sent = telegram.send(selected, error_note)
+        # Solo marcamos como vistas si hemos podido notificar, para no perder ofertas.
+        if sent or not selected:
+            dedupe.save(seen | {job.id for job in relevant})
+        else:
+            print("[aviso] no se pudo enviar; no se marcan ofertas como vistas")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Buscador de empleo automatizado")
     parser.add_argument("--dry-run", action="store_true", help="no envía ni guarda estado")
     parser.add_argument("--limit", type=int, default=None, help="máx. ofertas LinkedIn a detallar")
+    parser.add_argument(
+        "--test-telegram",
+        action="store_true",
+        help="comprueba la configuración de Telegram y envía un mensaje de prueba",
+    )
     args = parser.parse_args()
+    if args.test_telegram:
+        telegram.test()
+        return
     run(dry_run=args.dry_run, limit=args.limit)
 
 

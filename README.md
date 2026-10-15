@@ -42,6 +42,30 @@ En el repositorio → **Settings → Secrets and variables → Actions → New r
 ### 4. Activar
 Push a `main` o ejecuta el workflow a mano desde **Actions → Job alerts → Run workflow**.
 
+## Comprobar que Telegram funciona
+
+Antes de esperar ofertas, verifica la conexión:
+
+- **Desde GitHub:** Actions → Job alerts → *Run workflow* → marca **test_telegram** → Run.
+  Deberías recibir un mensaje de prueba y en el log ver `[test] RESULTADO: correcto`.
+- **En local:** `TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python -m src.main --test-telegram`
+
+## Si la ejecución termina bien pero no recibes nada
+
+El log del workflow (Actions → Job alerts → última ejecución → paso "Buscar ofertas y notificar")
+indica el motivo. Casos típicos:
+
+- `[aviso] Telegram no está configurado`: nombres de secretos mal escritos o sin crear.
+- `[test] token detectado` no aparece: el workflow no ve los secretos (revisa Settings → Secrets).
+- `[telegram] respuesta: HTTP 400: chat not found`: `TELEGRAM_CHAT_ID` incorrecto, o no has
+  enviado `/start` al bot.
+- `[dedupe] 0 ofertas nuevas`: no hay ofertas nuevas desde la última ejecución (normal).
+- `[resultado] ninguna oferta nueva pasa el filtro por reglas` / `ninguna oferta supera MIN_SCORE`:
+  baja `MIN_SCORE` o amplía `LINKEDIN_QUERIES`/`INFOJOBS_QUERIES` en `src/config.py`.
+
+> Nota: si una ejecución no logra enviar por Telegram, **no** marca las ofertas como vistas,
+> así que se reintentan en la siguiente ejecución.
+
 ## Personalizar
 
 Toda la configuración está en [`src/config.py`](src/config.py):
@@ -63,6 +87,13 @@ GEMINI_API_KEY="tu_key" .venv/bin/python -m src.main --dry-run
 ```
 
 Sin `GEMINI_API_KEY` funciona igual, pero sin puntuación (solo filtro por reglas).
+
+### Modelos de Gemini
+
+El código detecta automáticamente los modelos disponibles (`generateContent`) y elige el
+**flash** más reciente, así que no hay que actualizar nombres cuando Google retira versiones.
+Si quieres forzar uno concreto, define la variable de entorno `GEMINI_MODEL` (p. ej.
+`gemini-3.8-flash`); si falla, cae al resto de candidatos y, en último caso, al filtro por reglas.
 
 ## Notas
 

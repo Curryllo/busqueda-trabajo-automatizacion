@@ -7,11 +7,68 @@ import re
 from . import config
 from .models import Job
 
-MODELS = [
-    os.environ.get("GEMINI_MODEL", ""),
+# Se usan como respaldo si no se pueden listar los modelos disponibles.
+# El orden importa: se prueban de arriba a abajo.
+FALLBACK_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3-flash",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
 ]
+
+
+def _version(name: str) -> tuple[int, int]:
+    m = re.search(r"gemini-(\d+)(?:\.(\d+))?", name)
+    if not m:
+        return (0, 0)
+    return (int(m.group(1)), int(m.group(2) or 0))
+
+
+def _usable(name: str, allow_thinking: bool = False) -> bool:
+    low = name.lower()
+    if "flash" not in low:
+        return False
+    if any(x in low for x in ("image", "embedding", "tts", "live", "vision", "audio", "video")):
+        return False
+    if not allow_thinking and "thinking" in low:
+        return False
+    return True
+
+
+def _discover_models(client) -> list[str]:
+    """Pregunta a la API qué modelos aceptan generateContent y devuelve los flash más nuevos."""
+    names: list[str] = []
+    try:
+        for m in client.models.list():
+            raw = getattr(m, "name", "") or ""
+            actions = getattr(m, "supported_actions", None)
+            if actions is None:
+                actions = getattr(m, "supported_generation_methods", None)
+            if actions is not None and "generateContent" not in actions:
+                continue
+            if raw:
+                names.append(raw.split("models/")[-1])
+    except Exception as exc:  # noqa: BLE001 - si falla, usamos la lista fija
+        print(f"[scorer] no se pudo listar modelos disponibles ({exc}); uso lista de respaldo")
+        return []
+
+    candidates = [n for n in names if _usable(n)]
+    if not candidates:
+        candidates = [n for n in names if _usable(n, allow_thinking=True)]
+    candidates.sort(key=_version, reverse=True)
+    return candidates
+
+
+def _candidate_models(client) -> list[str]:
+    preferred: list[str] = []
+    env_model = os.environ.get("GEMINI_MODEL", "").strip().split("models/")[-1]
+    if env_model:
+        preferred.append(env_model)
+    preferred += _discover_models(client)
+    preferred += FALLBACK_MODELS
+    unique = list(dict.fromkeys(m for m in preferred if m))
+    print(f"[scorer] modelos candidatos: {', '.join(unique[:5])}")
+    return unique
 
 PROMPT = """Eres un asistente que ayuda a un candidato a filtrar ofertas de empleo.
 
@@ -83,7 +140,7 @@ def score(jobs: list[Job]) -> list[Job]:
         return jobs
 
     client = genai.Client(api_key=api_key)
-    models = [m for m in MODELS if m]
+    models = _candidate_models(client)
     batch_size = 4
     model = models[0]
 
@@ -95,6 +152,9 @@ def score(jobs: list[Job]) -> list[Job]:
             try:
                 scored = _score_batch(client, types, candidate, batch)
                 model = candidate
+                # El modelo que funciona pasa al frente para los siguientes lotes.
+                models.remove(candidate)
+                models.insert(0, candidate)
                 break
             except Exception as exc:  # noqa: BLE001
                 last_error = exc

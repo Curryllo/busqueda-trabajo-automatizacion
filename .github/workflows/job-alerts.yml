@@ -4,7 +4,12 @@ on:
   schedule:
     # 07:00, 12:00 y 17:00 UTC (≈ 08/09, 13/14, 18/19 hora peninsular)
     - cron: "0 7,12,17 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_telegram:
+        description: "Solo comprobar Telegram (envía un mensaje de prueba)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -33,12 +38,32 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python -m src.main
+        run: |
+          if [ "${{ inputs.test_telegram }}" = "true" ]; then
+            python -m src.main --test-telegram
+          else
+            python -m src.main
+          fi
 
       - name: Guardar ofertas vistas
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/seen_jobs.json
-          git diff --cached --quiet || git commit -m "chore: actualizar ofertas vistas [skip ci]"
-          git push
+          if git diff --cached --quiet; then
+            echo "Sin cambios en las ofertas vistas"
+            exit 0
+          fi
+          git commit -m "chore: actualizar ofertas vistas [skip ci]"
+          # El remoto puede haber avanzado (otro push); reintentamos integrando cambios.
+          for attempt in 1 2 3; do
+            git fetch origin
+            git merge --no-edit -X ours "origin/${GITHUB_REF_NAME}" || true
+            if git push; then
+              echo "Push correcto (intento $attempt)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "No se pudo hacer push tras varios intentos"
+          exit 1
