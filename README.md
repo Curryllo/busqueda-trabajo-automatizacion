@@ -10,7 +10,7 @@ encendido ni un servidor propio.
 ## Cómo funciona
 
 ```
-GitHub Actions (07:00, 12:00, 17:00 UTC, L-V)
+GitHub Actions (07:17, 12:17, 17:17 UTC, L-V)
   1. Recoge ofertas: LinkedIn, InfoJobs, Remotive, Arbeitnow
   2. Descarta las ya vistas (data/seen_jobs.json)
   3. Filtra por reglas: rol de desarrollo, no senior, ubicación válida
